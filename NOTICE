@@ -1,0 +1,46 @@
+sqsoverflow
+Copyright 2026 Christoph Sens
+
+Licensed under the Apache License, Version 2.0.
+
+---
+
+This project is a Kotlin port of
+"amazon-sqs-java-extended-client-lib"
+(https://github.com/awslabs/amazon-sqs-java-extended-client-lib):
+
+    Copyright 2010-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+    Licensed under the Apache License, Version 2.0.
+
+This is a derivative work under the Apache License, Version 2.0. The message-offload
+control flow, receipt-handle pointer embedding, message-attribute validation, and S3 key
+prefix rules in src/main/kotlin/com/christophsens/sqsoverflow/SqsExtendedClient.kt,
+SqsExtendedClientConfig.kt, and SqsExtendedClientConstants.kt are ported from the
+corresponding logic in the original's AmazonSQSExtendedClient, AmazonSQSExtendedClientBase,
+AmazonSQSExtendedClientUtil, SQSExtendedClientConstants, and ExtendedClientConfiguration,
+translated from Java to Kotlin. See the copyright header in each of those files for the
+original attribution.
+
+Changes made in this port:
+
+  * The original's separate AmazonSQSExtendedClient (SqsClient) and
+    AmazonSQSExtendedAsyncClient (SqsAsyncClient) are consolidated into a single
+    SqsExtendedClient, since aws-sdk-kotlin's SqsClient is already suspend-based.
+  * The ~1150-line pass-through base class (AmazonSQSExtendedClientBase) is replaced by
+    Kotlin interface delegation (`SqsClient by sqsClient`).
+  * payloadoffloading-common (PayloadStore/S3BackedPayloadStore/S3Dao/Util/PayloadS3Pointer)
+    is replaced by s3overflow (https://github.com/christoph-sens/s3overflow), itself a
+    from-scratch Kotlin reimplementation of payload-offloading-java-common-lib-for-aws.
+  * ExtendedClientConfiguration's ObjectCannedACL/ServerSideEncryptionStrategy
+    configuration, the legacy SQSLargePayloadSize attribute name toggle, and the
+    deprecated pre-PayloadStorageConfiguration aliases are dropped. Core behavior —
+    threshold-based offloading, alwaysThroughS3, cleanupS3Payload, s3KeyPrefix,
+    ignorePayloadNotFound — is preserved.
+
+The receipt-handle and pointer JSON formats produced by this port are therefore not
+byte-identical to the original's, except for the RESERVED_ATTRIBUTE_NAME value
+("ExtendedPayloadSize"), which is kept unchanged for interop with the original's documented
+SNSExtendedClient-shared attribute name.
+
+This notice is included to comply with Section 4 of the Apache License, Version 2.0, under
+which the referenced project is distributed.
