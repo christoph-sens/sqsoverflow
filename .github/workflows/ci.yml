@@ -68,3 +68,19 @@ jobs:
       - uses: github/codeql-action/analyze@v4
         with:
           category: /language:java-kotlin
+
+  # Sends the resolved Gradle dependency tree to GitHub's dependency graph so Dependabot alerts
+  # and security updates cover Maven dependencies (GitHub cannot resolve them statically).
+  dependency-submission:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 25
+      - uses: gradle/actions/dependency-submission@v6
