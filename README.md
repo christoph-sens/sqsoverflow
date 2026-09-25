@@ -1,12 +1,22 @@
 # sqsoverflow
 
+[![Maven Central](https://img.shields.io/maven-central/v/com.christoph-sens/sqsoverflow)](https://central.sonatype.com/artifact/com.christoph-sens/sqsoverflow)
+[![CI](https://github.com/christoph-sens/sqsoverflow/actions/workflows/ci.yml/badge.svg)](https://github.com/christoph-sens/sqsoverflow/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 Kotlin port of [amazon-sqs-java-extended-client-lib](https://github.com/awslabs/amazon-sqs-java-extended-client-lib):
-transparently offloads SQS message bodies that exceed the 256 KB limit to S3, built on
+transparently offloads SQS message bodies that exceed the configured size threshold to S3, built on
 [aws-sdk-kotlin](https://github.com/awslabs/aws-sdk-kotlin) and [s3overflow](https://github.com/christoph-sens/s3overflow)
 (a Kotlin reimplementation of `payload-offloading-java-common-lib-for-aws`, the library the original depends on).
 
 This is a derivative work of the original under the Apache License, Version 2.0 — see
 [NOTICE](NOTICE) for exactly which parts were ported and what was changed.
+
+Part of a family: [s3overflow](https://github.com/christoph-sens/s3overflow) (payload store) · **sqsoverflow** (SQS client) · [snsoverflow](https://github.com/christoph-sens/snsoverflow) (SNS client).
+
+> **Message size limit:** SQS accepts messages up to 1 MiB. The default `payloadSizeThreshold` is 256 KiB,
+> so larger messages are offloaded earlier than strictly necessary; set `payloadSizeThreshold` to
+> `1024 * 1024` to use the full SQS limit.
 
 ## Why a port
 
@@ -51,6 +61,29 @@ messages?.forEach { message -> extendedClient.deleteMessage(DeleteMessageRequest
 `SqsExtendedClient` implements `SqsClient`, so it's a drop-in replacement wherever a plain
 `aws-sdk-kotlin` `SqsClient` is expected.
 
+## Migrating from amazon-sqs-java-extended-client-lib
+
+sqsoverflow is **not wire-compatible** with the Java library: the S3 pointer and receipt-handle
+formats differ. A message sent by one cannot be read by the other. Switch all producers and
+consumers of a queue at the same time, or drain the queue before switching.
+
+```java
+// Before (Java, amazon-sqs-java-extended-client-lib)
+ExtendedClientConfiguration config = new ExtendedClientConfiguration()
+    .withPayloadSupportEnabled(s3Client, "my-payload-bucket");
+SqsClient client = new AmazonSQSExtendedClient(SqsClient.builder().build(), config);
+```
+
+```kotlin
+// After (Kotlin, sqsoverflow)
+val client = SqsExtendedClient(
+    SqsClient.fromEnvironment(),
+    SqsExtendedClientConfig(payloadStore = S3BackedPayloadStore(s3Client, bucketName = "my-payload-bucket")),
+)
+```
+
+Client-side encryption and canned ACL options have no equivalent; configure SSE-S3/SSE-KMS on the bucket instead.
+
 ## Build
 
 ```bash
@@ -63,14 +96,12 @@ messages?.forEach { message -> extendedClient.deleteMessage(DeleteMessageRequest
 against real SQS and S3 APIs via [Testcontainers](https://testcontainers.com)/[Floci](https://github.com/floci-io/floci)
 (a free, MIT-licensed local AWS emulator; used instead of LocalStack, whose community edition
 now requires an auth token). It
-verifies the actual 256 KB offload threshold end-to-end: a message under the threshold is
+verifies the default 256 KiB offload threshold end-to-end: a message under the threshold is
 written straight to SQS with no object created in S3, and a message over the threshold results
 in only a pointer on SQS while the payload lands in S3 (and resolves back correctly on
 receive). Requires Docker; not part of `./gradlew build`/`check`.
 
 ## Installation
-
-[![Maven Central](https://img.shields.io/maven-central/v/com.christoph-sens/sqsoverflow)](https://central.sonatype.com/artifact/com.christoph-sens/sqsoverflow)
 
 ```kotlin
 dependencies {

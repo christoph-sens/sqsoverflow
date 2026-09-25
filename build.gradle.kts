@@ -77,7 +77,7 @@ mavenPublishing {
         name.set("sqsoverflow")
         description.set(
             "Kotlin SQS extended client: transparently offloads message payloads that exceed the " +
-                "256 KB SQS limit to S3, based on aws-sdk-kotlin, coroutines, and s3overflow.",
+                "SQS message size limit to S3, based on aws-sdk-kotlin, coroutines, and s3overflow.",
         )
         url.set("https://github.com/christoph-sens/sqsoverflow")
         licenses {
