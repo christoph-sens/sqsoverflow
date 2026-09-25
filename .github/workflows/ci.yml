@@ -31,7 +31,7 @@ jobs:
         run: ./gradlew integrationTest
       - name: Test summary
         if: ${{ !cancelled() }}
-        uses: mikepenz/action-junit-report@v5
+        uses: mikepenz/action-junit-report@v6
         with:
           report_paths: '**/build/test-results/**/*.xml'
           annotate_only: true
