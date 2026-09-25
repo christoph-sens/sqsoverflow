@@ -86,6 +86,19 @@ dependencies {
 </dependency>
 ```
 
+### Verifying a release
+
+Every file published to Maven Central (jars, POM, Gradle module metadata) has a signed
+[build provenance attestation](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations)
+proving it was built by this repository's release workflow from the tagged commit. Verify a
+downloaded file with the GitHub CLI:
+
+```bash
+gh attestation verify sqsoverflow-<version>.jar --repo christoph-sens/sqsoverflow
+```
+
+Releases published before provenance attestations were introduced have no attestation.
+
 ## Releasing (maintainers)
 
 Releases are published to Maven Central by the [release workflow](.github/workflows/release.yml)
@@ -98,8 +111,9 @@ git push origin v1.2.3
 ```
 
 The workflow builds and tests the tag, then waits for manual approval in the `maven-central`
-environment before signing and publishing. After publishing it creates a GitHub release with
-generated notes. Maven Central releases are immutable: fix mistakes with a new patch release.
+environment before signing and publishing. The publish job attests the build provenance of the
+published files before uploading them, then creates a GitHub release with generated notes and
+the published jars attached. Maven Central releases are immutable: fix mistakes with a new patch release.
 Running the workflow manually (`workflow_dispatch`) is a dry run that never publishes.
 
 This library depends on [s3overflow](https://github.com/christoph-sens/s3overflow). When releasing

@@ -43,9 +43,11 @@ jobs:
         # Builds everything that gets published (jar, sources, javadoc, POM) without signing: the
         # signing keys only exist in the publish job. CI checks the full publication on every PR.
         run: ./gradlew build integrationTest sourcesJar plainJavadocJar generatePomFileForMavenPublication -PreleaseVersion=${{ steps.version.outputs.version }}
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      # Only for inspecting dry runs: a release attaches the files built by the publish job instead.
+      - if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: jars
+          name: dry-run-jars
           path: build/libs/*.jar
           retention-days: 7
 
@@ -56,6 +58,11 @@ jobs:
     timeout-minutes: 30
     # Requires manual approval; the Maven Central and signing secrets live only in this environment.
     environment: maven-central
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
@@ -65,6 +72,19 @@ jobs:
       - uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
         with:
           cache-read-only: true
+      # Build the published files first and attest them before anything leaves the runner: if the
+      # attestation fails, nothing is published (Maven Central releases cannot be replaced).
+      - name: Assemble publication
+        run: |
+          ./gradlew jar sourcesJar plainJavadocJar generatePomFileForMavenPublication generateMetadataFileForMavenPublication -PreleaseVersion=${{ needs.verify.outputs.version }} --no-configuration-cache
+          sha256sum build/libs/*.jar build/publications/maven/pom-default.xml build/publications/maven/module.json > "$RUNNER_TEMP/published.sha256"
+      - name: Attest build provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            build/libs/*.jar
+            build/publications/maven/pom-default.xml
+            build/publications/maven/module.json
       - name: Publish to Maven Central
         run: ./gradlew publishAndReleaseToMavenCentral -PreleaseVersion=${{ needs.verify.outputs.version }} --no-configuration-cache
         env:
@@ -73,6 +93,13 @@ jobs:
           ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
           ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ secrets.SIGNING_KEY_ID }}
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_KEY_PASSWORD }}
+      - name: Check published files match the attested ones
+        run: sha256sum --check "$RUNNER_TEMP/published.sha256"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: jars
+          path: build/libs/*.jar
+          retention-days: 7
 
   github-release:
     needs: publish
