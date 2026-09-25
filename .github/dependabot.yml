@@ -4,6 +4,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 5
     groups:
       gradle-minor-and-patch:
         update-types: ["minor", "patch"]
@@ -11,6 +13,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 5
     groups:
       github-actions-minor-and-patch:
         update-types: ["minor", "patch"]
