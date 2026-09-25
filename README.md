@@ -70,11 +70,11 @@ receive). Requires Docker; not part of `./gradlew build`/`check`.
 
 ## Installation
 
-Once published to Maven Central:
+[![Maven Central](https://img.shields.io/maven-central/v/com.christoph-sens/sqsoverflow)](https://central.sonatype.com/artifact/com.christoph-sens/sqsoverflow)
 
 ```kotlin
 dependencies {
-    implementation("com.christoph-sens:sqsoverflow:0.1.0")
+    implementation("com.christoph-sens:sqsoverflow:<version>")
 }
 ```
 
@@ -82,30 +82,28 @@ dependencies {
 <dependency>
   <groupId>com.christoph-sens</groupId>
   <artifactId>sqsoverflow</artifactId>
-  <version>0.1.0</version>
+  <version><version></version>
 </dependency>
 ```
 
-## Publishing (maintainers)
+## Releasing (maintainers)
 
-Publishing uses the [Vanniktech Maven Publish plugin](https://github.com/vanniktech/gradle-maven-publish-plugin)
-against Sonatype's Central Publishing Portal. This requires a Central account with the
-`com.christoph-sens` namespace verified (via a DNS TXT record on `christoph-sens.com`) and a GPG
-signing key. Set the following in `~/.gradle/gradle.properties` (never commit these):
-
-```properties
-mavenCentralUsername=...
-mavenCentralPassword=...
-signing.keyId=...
-signing.password=...
-signing.secretKeyRingFile=...
-```
-
-Then bump `version` in [build.gradle.kts](build.gradle.kts) and run:
+Releases are published to Maven Central by the [release workflow](.github/workflows/release.yml)
+using the [Vanniktech Maven Publish plugin](https://github.com/vanniktech/gradle-maven-publish-plugin).
+The version comes from the Git tag; there is no version to bump in the build file.
 
 ```bash
-./gradlew publishToMavenCentral
+git tag v1.2.3
+git push origin v1.2.3
 ```
+
+The workflow builds and tests the tag, then waits for manual approval in the `maven-central`
+environment before signing and publishing. After publishing it creates a GitHub release with
+generated notes. Maven Central releases are immutable: fix mistakes with a new patch release.
+Running the workflow manually (`workflow_dispatch`) is a dry run that never publishes.
+
+This library depends on [s3overflow](https://github.com/christoph-sens/s3overflow). When releasing
+both, release s3overflow first and wait for Dependabot to bump it here before tagging this repo.
 
 ## Contributing
 
