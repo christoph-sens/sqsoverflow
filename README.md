@@ -14,9 +14,10 @@ This is a derivative work of the original under the Apache License, Version 2.0 
 
 Part of a family: [s3overflow](https://github.com/christoph-sens/s3overflow) (payload store) · **sqsoverflow** (SQS client) · [snsoverflow](https://github.com/christoph-sens/snsoverflow) (SNS client).
 
-> **Message size limit:** SQS accepts messages up to 1 MiB. The default `payloadSizeThreshold` is 256 KiB,
-> so larger messages are offloaded earlier than strictly necessary; set `payloadSizeThreshold` to
-> `1024 * 1024` to use the full SQS limit.
+> **Message size limit:** SQS accepts messages up to 1 MiB, which is the default `payloadSizeThreshold`
+> (`SQS_MAX_MESSAGE_SIZE_BYTES`). Before version 1.1.0 the default was 256 KiB; pass
+> `payloadSizeThreshold = 256 * 1024` to keep offloading at that size.
+> `sendMessageBatch` offloads per entry; the whole batch must still fit into the 1 MiB SQS request limit.
 
 ## Why a port
 
@@ -96,7 +97,7 @@ Client-side encryption and canned ACL options have no equivalent; configure SSE-
 against real SQS and S3 APIs via [Testcontainers](https://testcontainers.com)/[Floci](https://github.com/floci-io/floci)
 (a free, MIT-licensed local AWS emulator; used instead of LocalStack, whose community edition
 now requires an auth token). It
-verifies the default 256 KiB offload threshold end-to-end: a message under the threshold is
+verifies the default 1 MiB offload threshold end-to-end: a message under the threshold is
 written straight to SQS with no object created in S3, and a message over the threshold results
 in only a pointer on SQS while the payload lands in S3 (and resolves back correctly on
 receive). Requires Docker; not part of `./gradlew build`/`check`.

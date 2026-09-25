@@ -22,7 +22,7 @@
 package com.christophsens.sqsoverflow
 
 import com.christophsens.s3overflow.PayloadStore
-import com.christophsens.s3overflow.SQS_SNS_MAX_INLINE_PAYLOAD_SIZE_BYTES
+import com.christophsens.s3overflow.SQS_MAX_MESSAGE_SIZE_BYTES
 
 /**
  * Configures [SqsExtendedClient]. Encryption at rest is configured on the S3 bucket backing
@@ -32,7 +32,7 @@ class SqsExtendedClientConfig(
     /** Backing store for offloaded payloads, e.g. `S3BackedPayloadStore(s3Client, bucketName)`. */
     val payloadStore: PayloadStore,
     /** Messages whose body + attributes exceed this many bytes are offloaded to [payloadStore]. */
-    val payloadSizeThreshold: Int = SQS_SNS_MAX_INLINE_PAYLOAD_SIZE_BYTES,
+    val payloadSizeThreshold: Int = SQS_MAX_MESSAGE_SIZE_BYTES,
     /** When true, every message is offloaded regardless of [payloadSizeThreshold]. */
     val alwaysThroughS3: Boolean = false,
     /** When true, deleting a message also deletes its offloaded payload. */

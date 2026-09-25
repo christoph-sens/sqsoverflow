@@ -13,7 +13,7 @@ class SqsExtendedClientConfigTest {
     fun `defaults are sensible`() {
         val config = SqsExtendedClientConfig(payloadStore)
 
-        assertThat(config.payloadSizeThreshold).isEqualTo(262_144)
+        assertThat(config.payloadSizeThreshold).isEqualTo(1_048_576)
         assertThat(config.alwaysThroughS3).isFalse()
         assertThat(config.cleanupS3Payload).isTrue()
         assertThat(config.ignorePayloadNotFound).isFalse()
