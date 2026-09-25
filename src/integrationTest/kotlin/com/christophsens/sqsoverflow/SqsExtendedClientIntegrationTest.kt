@@ -11,7 +11,7 @@ import aws.sdk.kotlin.services.sqs.model.SendMessageRequest
 import aws.smithy.kotlin.runtime.net.url.Url
 import com.christophsens.s3overflow.PayloadS3Pointer
 import com.christophsens.s3overflow.S3BackedPayloadStore
-import com.christophsens.s3overflow.SQS_SNS_MAX_INLINE_PAYLOAD_SIZE_BYTES
+import com.christophsens.s3overflow.SQS_MAX_MESSAGE_SIZE_BYTES
 import io.floci.testcontainers.FlociContainer
 import kotlinx.coroutines.test.runTest
 import org.assertj.core.api.Assertions.assertThat
@@ -23,7 +23,7 @@ import java.util.UUID
 
 /**
  * Runs [SqsExtendedClient] against real SQS and S3 APIs (via [Floci](https://github.com/floci-io/floci),
- * a free local AWS emulator) to verify the actual 256 KB offload threshold end-to-end: small
+ * a free local AWS emulator) to verify the default 1 MiB offload threshold end-to-end: small
  * messages go straight to SQS, larger ones are written to S3 and only a pointer travels through
  * SQS. Requires Docker.
  *
@@ -77,9 +77,9 @@ class SqsExtendedClientIntegrationTest {
         }
 
     @Test
-    fun `messages smaller than 256 KB are written directly to SQS, not to S3`() =
+    fun `messages smaller than 1 MiB are written directly to SQS, not to S3`() =
         runTest {
-            val smallBody = "x".repeat(1024)
+            val smallBody = "x".repeat(SQS_MAX_MESSAGE_SIZE_BYTES - 1024)
 
             extendedClient.sendMessage(SendMessageRequest { queueUrl = testQueueUrl; messageBody = smallBody })
 
@@ -90,9 +90,9 @@ class SqsExtendedClientIntegrationTest {
         }
 
     @Test
-    fun `messages larger than 256 KB are stored in S3 and only a pointer travels through SQS`() =
+    fun `messages larger than 1 MiB are stored in S3 and only a pointer travels through SQS`() =
         runTest {
-            val largeBody = "x".repeat(SQS_SNS_MAX_INLINE_PAYLOAD_SIZE_BYTES + 1024)
+            val largeBody = "x".repeat(SQS_MAX_MESSAGE_SIZE_BYTES + 1024)
 
             extendedClient.sendMessage(SendMessageRequest { queueUrl = testQueueUrl; messageBody = largeBody })
 

@@ -2,7 +2,7 @@
 kotlin = "2.4.20"
 aws-sdk-kotlin = "1.9.5"
 kotlinx-coroutines = "1.11.0"
-s3overflow = "1.0.0"
+s3overflow = "1.2.0"
 kotlin-logging = "8.0.4"
 slf4j = "2.0.19"
 mockk = "1.14.11"

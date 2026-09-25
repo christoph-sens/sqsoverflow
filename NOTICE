@@ -36,6 +36,8 @@ Changes made in this port:
     deprecated pre-PayloadStorageConfiguration aliases are dropped. Core behavior —
     threshold-based offloading, alwaysThroughS3, cleanupS3Payload, s3KeyPrefix,
     ignorePayloadNotFound — is preserved.
+  * The default offload threshold is 1 MiB (the current SQS message size limit) instead of the
+    original's 256 KB (DEFAULT_MESSAGE_SIZE_THRESHOLD).
 
 The receipt-handle and pointer JSON formats produced by this port are therefore not
 byte-identical to the original's, except for the RESERVED_ATTRIBUTE_NAME value
