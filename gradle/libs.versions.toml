@@ -1,6 +1,6 @@
 [versions]
 kotlin = "2.4.0"
-aws-sdk-kotlin = "1.6.92"
+aws-sdk-kotlin = "1.9.5"
 kotlinx-coroutines = "1.10.2"
 s3overflow = "1.0.0"
 kotlin-logging = "7.0.7"
