@@ -1,5 +1,5 @@
 [versions]
-kotlin = "2.4.0"
+kotlin = "2.4.20"
 aws-sdk-kotlin = "1.9.5"
 kotlinx-coroutines = "1.10.2"
 s3overflow = "1.0.0"
