@@ -31,7 +31,8 @@ jobs:
             fi
             echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
           else
-            echo "version=0.0.0-SNAPSHOT" >> "$GITHUB_OUTPUT"
+            # Dry run: use a release-style (non-SNAPSHOT) version so the release code path is exercised.
+            echo "version=0.0.0-dryrun" >> "$GITHUB_OUTPUT"
           fi
       - uses: actions/setup-java@v6
         with:
