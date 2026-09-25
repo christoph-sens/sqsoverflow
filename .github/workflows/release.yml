@@ -40,8 +40,9 @@ jobs:
           java-version: 25
       - uses: gradle/actions/setup-gradle@v6
       - name: Build, test and assemble publication
-        # Release versions must be signed, but the keys only exist in the publish job: skip signing here.
-        run: ./gradlew build integrationTest publishToMavenLocal -PreleaseVersion=${{ steps.version.outputs.version }} -x signMavenPublication
+        # Builds everything that gets published (jar, sources, javadoc, POM) without signing: the
+        # signing keys only exist in the publish job. CI checks the full publication on every PR.
+        run: ./gradlew build integrationTest sourcesJar plainJavadocJar generatePomFileForMavenPublication -PreleaseVersion=${{ steps.version.outputs.version }}
       - uses: actions/upload-artifact@v7
         with:
           name: jars
