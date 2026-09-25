@@ -9,7 +9,7 @@ mockk = "1.14.11"
 assertj = "3.27.7"
 maven-publish = "0.37.0"
 testcontainers = "1.21.4"
-testcontainers-floci = "1.12.0"
+testcontainers-floci = "2.16.1"
 
 [libraries]
 aws-sdk-kotlin-sqs = { module = "aws.sdk.kotlin:sqs", version.ref = "aws-sdk-kotlin" }
