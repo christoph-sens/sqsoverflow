@@ -9,4 +9,4 @@ permissions:
 jobs:
   # Shared job, see https://github.com/christoph-sens/ci-workflows
   auto-merge:
-    uses: christoph-sens/ci-workflows/.github/workflows/dependabot-auto-merge.yml@e2ecefaca92d58944dfa4d4d2a8a08a19b668e2b # v1.0.0
+    uses: christoph-sens/ci-workflows/.github/workflows/dependabot-auto-merge.yml@e7c5e372183405d6fda04b9aeb596723d51103ed # v1.0.1
