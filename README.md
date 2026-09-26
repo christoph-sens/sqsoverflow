@@ -14,6 +14,8 @@ This is a derivative work of the original under the Apache License, Version 2.0 
 
 Part of a family: [s3overflow](https://github.com/christoph-sens/s3overflow) (payload store) · **sqsoverflow** (SQS client) · [snsoverflow](https://github.com/christoph-sens/snsoverflow) (SNS client).
 
+Background, migration guide and design notes: [Large SQS and SNS messages in Kotlin](https://christoph-sens.github.io/2026/09/large-sqs-sns-messages-in-kotlin/) on the [blog](https://christoph-sens.github.io/).
+
 > **Message size limit:** SQS accepts messages up to 1 MiB, which is the default `payloadSizeThreshold`
 > (`SQS_MAX_MESSAGE_SIZE_BYTES`). Before version 1.1.0 the default was 256 KiB; pass
 > `payloadSizeThreshold = 256 * 1024` to keep offloading at that size.
