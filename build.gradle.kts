@@ -64,7 +64,7 @@ tasks.withType<Test> {
 }
 
 tasks.register<Test>("integrationTest") {
-    description = "Runs integration tests against LocalStack (requires Docker)."
+    description = "Runs integration tests against Floci (requires Docker)."
     group = "verification"
     testClassesDirs = sourceSets["integrationTest"].output.classesDirs
     classpath = sourceSets["integrationTest"].runtimeClasspath
@@ -76,8 +76,9 @@ mavenPublishing {
     pom {
         name.set("sqsoverflow")
         description.set(
-            "Kotlin SQS extended client: transparently offloads message payloads that exceed the " +
-                "SQS message size limit to S3, based on aws-sdk-kotlin, coroutines, and s3overflow.",
+            "SQS extended client for Kotlin: an aws-sdk-kotlin SqsClient that transparently offloads " +
+                "message payloads above a size threshold to S3. Coroutine-based, built on s3overflow, " +
+                "derived from amazon-sqs-java-extended-client-lib.",
         )
         url.set("https://github.com/christoph-sens/sqsoverflow")
         licenses {
