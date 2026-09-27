@@ -17,7 +17,7 @@ translated line by line. It is **not wire-compatible** with the Java library.
 
 Part of a family: [s3overflow](https://github.com/christoph-sens/s3overflow) (payload store) · **sqsoverflow** (SQS client) · [snsoverflow](https://github.com/christoph-sens/snsoverflow) (SNS client).
 
-Background, migration guide and design notes: [Large SQS and SNS messages in Kotlin](https://christoph-sens.github.io/2026/09/large-sqs-sns-messages-in-kotlin/) on the [blog](https://christoph-sens.github.io/).
+Background and design notes: [Large SQS and SNS messages in Kotlin](https://christoph-sens.github.io/2026/09/large-sqs-sns-messages-in-kotlin/) on the [blog](https://christoph-sens.github.io/).
 
 > **Message size limit:** SQS accepts messages up to 1 MiB, which is the default `payloadSizeThreshold`
 > (`SQS_MAX_MESSAGE_SIZE_BYTES`). Before version 1.1.0 the default was 256 KiB; pass
@@ -67,31 +67,22 @@ messages?.forEach { message -> extendedClient.deleteMessage(DeleteMessageRequest
 `SqsExtendedClient` implements `SqsClient`, so it's a drop-in replacement wherever a plain
 `aws-sdk-kotlin` `SqsClient` is expected.
 
-## Coming from amazon-sqs-java-extended-client-lib
-
-For Java services, the AWS library remains the natural choice. This section is for Kotlin services
-that use it through the Java SDK today and want to move to aws-sdk-kotlin.
+## Differences from amazon-sqs-java-extended-client-lib
 
 sqsoverflow is **not wire-compatible** with the Java library: the S3 pointer and receipt-handle
-formats differ. A message sent by one cannot be read by the other. Switch all producers and
-consumers of a queue at the same time, or drain the queue before switching.
+formats differ. A message sent by one cannot be read by the other, so all producers and consumers
+of a queue must use the same library. A Kotlin service that uses the Java library through the Java
+SDK today can only switch together with the rest of the queue's producers and consumers, or after
+draining the queue.
 
-```java
-// Before (Java, amazon-sqs-java-extended-client-lib)
-ExtendedClientConfiguration config = new ExtendedClientConfiguration()
-    .withPayloadSupportEnabled(s3Client, "my-payload-bucket");
-SqsClient client = new AmazonSQSExtendedClient(SqsClient.builder().build(), config);
-```
+The reserved message attribute is `ExtendedPayloadSize`, the same name the Java libraries use, so
+SNS-to-SQS fan-out works between [snsoverflow](https://github.com/christoph-sens/snsoverflow) and sqsoverflow.
 
-```kotlin
-// After (Kotlin, sqsoverflow)
-val client = SqsExtendedClient(
-    SqsClient.fromEnvironment(),
-    SqsExtendedClientConfig(payloadStore = S3BackedPayloadStore(s3Client, bucketName = "my-payload-bucket")),
-)
-```
-
-Client-side encryption and canned ACL options have no equivalent; configure SSE-S3/SSE-KMS on the bucket instead.
+| Java option | In sqsoverflow |
+|---|---|
+| Client-side encryption (`ServerSideEncryptionStrategy`) | Configure SSE-S3 or SSE-KMS on the bucket |
+| `ObjectCannedACL` | Use bucket policies |
+| Legacy `SQSLargePayloadSize` attribute name | Always `ExtendedPayloadSize` |
 
 ## Build
 
