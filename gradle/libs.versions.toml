@@ -1,10 +1,10 @@
 [versions]
 kotlin = "2.4.20"
-aws-sdk-kotlin = "1.9.5"
+aws-sdk-kotlin = "1.9.9"
 kotlinx-coroutines = "1.11.0"
 s3overflow = "1.2.0"
 kotlin-logging = "8.0.4"
-slf4j = "2.0.19"
+slf4j = "2.0.20"
 mockk = "1.14.11"
 assertj = "3.27.7"
 maven-publish = "0.37.0"
