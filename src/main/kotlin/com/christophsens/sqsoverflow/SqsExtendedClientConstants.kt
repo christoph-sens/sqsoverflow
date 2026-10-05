@@ -17,7 +17,8 @@
  * S3-key-prefix validation logic from amazon-sqs-java-extended-client-lib's
  * SQSExtendedClientConstants/AmazonSQSExtendedClientUtil
  * (https://github.com/awslabs/amazon-sqs-java-extended-client-lib). RESERVED_ATTRIBUTE_NAME
- * is kept byte-identical to the original's reserved attribute name, since the original
+ * and LEGACY_RESERVED_ATTRIBUTE_NAME are kept byte-identical to the original's reserved
+ * attribute names, since the original
  * documents it as shared with SNSExtendedClient implementations and changing it would break
  * interop with messages produced by the original library. See NOTICE for details.
  */
@@ -28,6 +29,14 @@ import com.christophsens.s3overflow.PayloadS3Pointer
 
 /** Message attribute name used to flag a message whose body was offloaded to S3. */
 internal const val RESERVED_ATTRIBUTE_NAME = "ExtendedPayloadSize"
+
+/**
+ * Former reserved attribute name, which amazon-sqs-java-extended-client-lib still writes by default
+ * (`useLegacyReservedAttributeName = true`). Recognized on receive, never written.
+ */
+internal const val LEGACY_RESERVED_ATTRIBUTE_NAME = "SQSLargePayloadSize"
+
+internal val RESERVED_ATTRIBUTE_NAMES = listOf(RESERVED_ATTRIBUTE_NAME, LEGACY_RESERVED_ATTRIBUTE_NAME)
 
 /** SQS allows at most 10 message attributes; one slot is reserved for [RESERVED_ATTRIBUTE_NAME]. */
 internal const val MAX_ALLOWED_ATTRIBUTES = 9
