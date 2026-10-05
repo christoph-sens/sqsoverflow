@@ -179,7 +179,7 @@ class SqsExtendedClient(
         val toOffload = entries.indices.filterTo(mutableSetOf()) { clientConfig.alwaysThroughS3 || sizes[it] > clientConfig.payloadSizeThreshold }
 
         var total = entries.indices.sumOf { if (it in toOffload) offloadedSizes[it] else sizes[it] }
-        val candidates = (entries.indices - toOffload).sortedByDescending { sizes[it] }.iterator()
+        val candidates = (entries.indices - toOffload).filter { sizes[it] > offloadedSizes[it] }.sortedByDescending { sizes[it] }.iterator()
         while (total > SQS_MAX_MESSAGE_SIZE_BYTES && candidates.hasNext()) {
             val index = candidates.next()
             toOffload += index
