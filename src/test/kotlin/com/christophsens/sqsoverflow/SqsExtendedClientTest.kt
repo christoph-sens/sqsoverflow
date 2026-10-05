@@ -2,6 +2,7 @@ package com.christophsens.sqsoverflow
 
 import aws.sdk.kotlin.services.s3.model.NoSuchKey
 import aws.sdk.kotlin.services.sqs.SqsClient
+import aws.sdk.kotlin.services.sqs.model.BatchResultErrorEntry
 import aws.sdk.kotlin.services.sqs.model.ChangeMessageVisibilityBatchRequest
 import aws.sdk.kotlin.services.sqs.model.ChangeMessageVisibilityBatchRequestEntry
 import aws.sdk.kotlin.services.sqs.model.ChangeMessageVisibilityBatchResponse
@@ -10,6 +11,7 @@ import aws.sdk.kotlin.services.sqs.model.ChangeMessageVisibilityResponse
 import aws.sdk.kotlin.services.sqs.model.DeleteMessageBatchRequest
 import aws.sdk.kotlin.services.sqs.model.DeleteMessageBatchRequestEntry
 import aws.sdk.kotlin.services.sqs.model.DeleteMessageBatchResponse
+import aws.sdk.kotlin.services.sqs.model.DeleteMessageBatchResultEntry
 import aws.sdk.kotlin.services.sqs.model.DeleteMessageRequest
 import aws.sdk.kotlin.services.sqs.model.DeleteMessageResponse
 import aws.sdk.kotlin.services.sqs.model.Message
@@ -25,9 +27,13 @@ import aws.sdk.kotlin.services.sqs.model.SendMessageRequest
 import aws.sdk.kotlin.services.sqs.model.SendMessageResponse
 import com.christophsens.s3overflow.PayloadS3Pointer
 import com.christophsens.s3overflow.PayloadStore
+import com.christophsens.s3overflow.SQS_MAX_MESSAGE_SIZE_BYTES
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.coVerifyOrder
 import io.mockk.mockk
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
@@ -386,7 +392,10 @@ class SqsExtendedClientTest {
             val s3ReceiptHandle = embedPointerInReceiptHandle("original-handle", pointer)
             coEvery { payloadStore.deleteOriginalPayload(pointer.toJson()) } returns Unit
             coEvery { sqsClient.deleteMessageBatch(any<DeleteMessageBatchRequest>()) } returns
-                DeleteMessageBatchResponse { failed = emptyList(); successful = emptyList() }
+                DeleteMessageBatchResponse {
+                    failed = emptyList()
+                    successful = listOf(DeleteMessageBatchResultEntry { id = "offloaded" }, DeleteMessageBatchResultEntry { id = "plain" })
+                }
 
             val request =
                 DeleteMessageBatchRequest {
@@ -462,5 +471,170 @@ class SqsExtendedClientTest {
             client.purgeQueue(PurgeQueueRequest { queueUrl = QUEUE_URL })
 
             coVerify { sqsClient.purgeQueue(any<PurgeQueueRequest>()) }
+        }
+
+    @Test
+    fun `sends a small message with ten attributes without offloading it`() =
+        runTest {
+            val largeThresholdClient = SqsExtendedClient(sqsClient, SqsExtendedClientConfig(payloadStore))
+            coEvery { sqsClient.sendMessage(any<SendMessageRequest>()) } returns SendMessageResponse {}
+            val attributes = (1..10).associate { i -> "attr-$i" to MessageAttributeValue { dataType = "String"; stringValue = "v" } }
+
+            largeThresholdClient.sendMessage(SendMessageRequest { queueUrl = QUEUE_URL; messageBody = "small"; messageAttributes = attributes })
+
+            coVerify { sqsClient.sendMessage(withArg<SendMessageRequest> { assertThat(it.messageAttributes).hasSize(10) }) }
+        }
+
+    @Test
+    fun `offloads the largest entries until the whole batch fits into the SQS limit`() =
+        runTest {
+            val largeThresholdClient = SqsExtendedClient(sqsClient, SqsExtendedClientConfig(payloadStore))
+            coEvery { payloadStore.storeOriginalPayload(any(), any()) } returns "pointer-json"
+            coEvery { sqsClient.sendMessageBatch(any<SendMessageBatchRequest>()) } returns
+                SendMessageBatchResponse { failed = emptyList(); successful = emptyList() }
+            val entrySizes = mapOf("small" to 300_000, "large" to 500_000, "medium" to 400_000)
+            check(entrySizes.values.sum() > SQS_MAX_MESSAGE_SIZE_BYTES && entrySizes.values.all { it < SQS_MAX_MESSAGE_SIZE_BYTES })
+
+            largeThresholdClient.sendMessageBatch(
+                SendMessageBatchRequest {
+                    queueUrl = QUEUE_URL
+                    entries = entrySizes.map { (name, size) -> SendMessageBatchRequestEntry { id = name; messageBody = "x".repeat(size) } }
+                },
+            )
+
+            coVerify {
+                sqsClient.sendMessageBatch(
+                    withArg<SendMessageBatchRequest> { batch ->
+                        val offloaded = batch.entries.orEmpty().filter { it.messageBody == "pointer-json" }.map { it.id }
+                        assertThat(offloaded).containsExactly("large")
+                    },
+                )
+            }
+        }
+
+    @Test
+    fun `resolves the payloads of a batch concurrently`() =
+        runTest {
+            val pointers = listOf(PayloadS3Pointer("my-bucket", "key-1"), PayloadS3Pointer("my-bucket", "key-2"))
+            pointers.forEach { pointer ->
+                coEvery { payloadStore.getOriginalPayload(pointer.toJson()) } coAnswers {
+                    delay(1_000)
+                    "payload of ${pointer.s3Key}"
+                }
+            }
+            coEvery { sqsClient.receiveMessage(any<ReceiveMessageRequest>()) } returns
+                ReceiveMessageResponse { messages = pointers.map { offloadedMessage(it, receipt = it.s3Key) } }
+
+            val response = client.receiveMessage(ReceiveMessageRequest { queueUrl = QUEUE_URL })
+
+            assertThat(response.messages.orEmpty().map { it.body }).containsExactly("payload of key-1", "payload of key-2")
+            assertThat(currentTime).isEqualTo(1_000)
+        }
+
+    @Test
+    fun `leaves a message with an unresolvable payload in the queue and returns the others`() =
+        runTest {
+            val good = PayloadS3Pointer("my-bucket", "good")
+            val broken = PayloadS3Pointer("my-bucket", "broken")
+            coEvery { payloadStore.getOriginalPayload(good.toJson()) } returns "good payload"
+            coEvery { payloadStore.getOriginalPayload(broken.toJson()) } throws IllegalStateException("S3 unavailable")
+            coEvery { sqsClient.receiveMessage(any<ReceiveMessageRequest>()) } returns
+                ReceiveMessageResponse {
+                    messages =
+                        listOf(
+                            offloadedMessage(broken, receipt = "broken-handle"),
+                            offloadedMessage(good, receipt = "good-handle"),
+                            Message { body = "plain body"; receiptHandle = "plain-handle" },
+                        )
+                }
+
+            val response = client.receiveMessage(ReceiveMessageRequest { queueUrl = QUEUE_URL })
+
+            assertThat(response.messages.orEmpty().map { it.body }).containsExactly("good payload", "plain body")
+            coVerify(exactly = 0) { sqsClient.deleteMessage(any<DeleteMessageRequest>()) }
+        }
+
+    @Test
+    fun `throws when no message of a receive could be resolved`() {
+        val first = PayloadS3Pointer("my-bucket", "first")
+        val second = PayloadS3Pointer("my-bucket", "second")
+        val firstFailure = IllegalStateException("first")
+        val secondFailure = IllegalStateException("second")
+        coEvery { payloadStore.getOriginalPayload(first.toJson()) } throws firstFailure
+        coEvery { payloadStore.getOriginalPayload(second.toJson()) } throws secondFailure
+        coEvery { sqsClient.receiveMessage(any<ReceiveMessageRequest>()) } returns
+            ReceiveMessageResponse { messages = listOf(offloadedMessage(first, "h1"), offloadedMessage(second, "h2")) }
+
+        assertThatThrownBy { runTest { client.receiveMessage(ReceiveMessageRequest { queueUrl = QUEUE_URL }) } }
+            .isSameAs(firstFailure)
+            .satisfies({ assertThat(it.suppressed).containsExactly(secondFailure) })
+    }
+
+    @Test
+    fun `deletes the sqs message before its payload`() =
+        runTest {
+            val pointer = PayloadS3Pointer("my-bucket", "my-key")
+            coEvery { payloadStore.deleteOriginalPayload(pointer.toJson()) } returns Unit
+            coEvery { sqsClient.deleteMessage(any<DeleteMessageRequest>()) } returns DeleteMessageResponse {}
+
+            client.deleteMessage(
+                DeleteMessageRequest { queueUrl = QUEUE_URL; receiptHandle = embedPointerInReceiptHandle("original-handle", pointer) },
+            )
+
+            coVerifyOrder {
+                sqsClient.deleteMessage(any<DeleteMessageRequest>())
+                payloadStore.deleteOriginalPayload(pointer.toJson())
+            }
+        }
+
+    @Test
+    fun `keeps the payload when deleting the sqs message fails`() {
+        val pointer = PayloadS3Pointer("my-bucket", "my-key")
+        val failure = IllegalStateException("receipt handle expired")
+        coEvery { sqsClient.deleteMessage(any<DeleteMessageRequest>()) } throws failure
+
+        assertThatThrownBy {
+            runTest {
+                client.deleteMessage(
+                    DeleteMessageRequest { queueUrl = QUEUE_URL; receiptHandle = embedPointerInReceiptHandle("original-handle", pointer) },
+                )
+            }
+        }.isSameAs(failure)
+        coVerify(exactly = 0) { payloadStore.deleteOriginalPayload(any()) }
+    }
+
+    @Test
+    fun `keeps the payloads of batch entries that sqs failed to delete`() =
+        runTest {
+            val deleted = PayloadS3Pointer("my-bucket", "deleted")
+            val kept = PayloadS3Pointer("my-bucket", "kept")
+            coEvery { payloadStore.deleteOriginalPayload(deleted.toJson()) } returns Unit
+            coEvery { sqsClient.deleteMessageBatch(any<DeleteMessageBatchRequest>()) } returns
+                DeleteMessageBatchResponse {
+                    successful = listOf(DeleteMessageBatchResultEntry { id = "deleted" })
+                    failed = listOf(BatchResultErrorEntry { id = "kept"; code = "ReceiptHandleIsInvalid"; senderFault = true })
+                }
+
+            client.deleteMessageBatch(
+                DeleteMessageBatchRequest {
+                    queueUrl = QUEUE_URL
+                    entries =
+                        listOf(
+                            DeleteMessageBatchRequestEntry { id = "deleted"; receiptHandle = embedPointerInReceiptHandle("h1", deleted) },
+                            DeleteMessageBatchRequestEntry { id = "kept"; receiptHandle = embedPointerInReceiptHandle("h2", kept) },
+                        )
+                },
+            )
+
+            coVerify(exactly = 1) { payloadStore.deleteOriginalPayload(deleted.toJson()) }
+            coVerify(exactly = 0) { payloadStore.deleteOriginalPayload(kept.toJson()) }
+        }
+
+    private fun offloadedMessage(pointer: PayloadS3Pointer, receipt: String): Message =
+        Message {
+            messageId = pointer.s3Key
+            body = pointer.toJson()
+            receiptHandle = receipt
+            messageAttributes = mapOf(RESERVED_ATTRIBUTE_NAME to MessageAttributeValue { dataType = "Number"; stringValue = "1" })
         }
 }

@@ -22,7 +22,8 @@ Background and design notes: [Large SQS and SNS messages in Kotlin](https://chri
 > **Message size limit:** SQS accepts messages up to 1 MiB, which is the default `payloadSizeThreshold`
 > (`SQS_MAX_MESSAGE_SIZE_BYTES`). Before version 1.1.0 the default was 256 KiB; pass
 > `payloadSizeThreshold = 256 * 1024` to keep offloading at that size.
-> `sendMessageBatch` offloads per entry; the whole batch must still fit into the 1 MiB SQS request limit.
+> `sendMessageBatch` offloads every entry above the threshold and, if the batch as a whole would still
+> exceed the 1 MiB SQS limit for the sum of all messages, the largest remaining entries until it fits.
 
 ## Designed for Kotlin
 
@@ -66,6 +67,25 @@ messages?.forEach { message -> extendedClient.deleteMessage(DeleteMessageRequest
 
 `SqsExtendedClient` implements `SqsClient`, so it's a drop-in replacement wherever a plain
 `aws-sdk-kotlin` `SqsClient` is expected.
+
+## Behavior worth knowing
+
+- **Concurrency:** payloads of a batch are uploaded, downloaded and deleted concurrently.
+- **Unresolvable payloads:** if the payload of a received message can't be read (S3 error, rejected
+  pointer), that message is left out of the result and logged; it stays in the queue, becomes visible
+  again after the visibility timeout and moves to the dead-letter queue once the redrive policy's
+  `maxReceiveCount` is reached. Configure a dead-letter queue. Only if no message of a receive can
+  be returned is the first error thrown.
+- **Delete order:** the SQS message is deleted first, then its payload. If the SQS delete fails, the
+  payload stays so a redelivered message can still be resolved; if the payload delete fails, an
+  orphaned object remains for the bucket's lifecycle rule (see
+  [s3overflow](https://github.com/christoph-sens/s3overflow#operating-the-payload-bucket)).
+- **`ignorePayloadNotFound`** only recognizes missing objects if the consumer may `s3:ListBucket` the
+  payload bucket. Without it, S3 answers `AccessDenied` instead of `NoSuchKey`, and the message is
+  treated as unresolvable.
+- **SNS fan-out:** every subscribed queue receives the same pointer. Set `cleanupS3Payload = false`
+  in all subscribers and expire payloads with a lifecycle rule, or the first subscriber to delete
+  its message removes the payload for the others.
 
 ## Differences from amazon-sqs-java-extended-client-lib
 

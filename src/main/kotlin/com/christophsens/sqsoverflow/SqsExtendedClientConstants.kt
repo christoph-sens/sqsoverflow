@@ -41,6 +41,12 @@ internal val RESERVED_ATTRIBUTE_NAMES = listOf(RESERVED_ATTRIBUTE_NAME, LEGACY_R
 /** SQS allows at most 10 message attributes; one slot is reserved for [RESERVED_ATTRIBUTE_NAME]. */
 internal const val MAX_ALLOWED_ATTRIBUTES = 9
 
+/**
+ * Upper bound for the size of an offloaded message's body and size attribute: the pointer JSON with a
+ * bucket name of up to 63 and a key of up to 1024 characters, plus the `ExtendedPayloadSize` attribute.
+ */
+internal const val OFFLOADED_BODY_ALLOWANCE_BYTES = 1280L
+
 private const val S3_BUCKET_NAME_MARKER = "-..s3BucketName..-"
 private const val S3_KEY_MARKER = "-..s3Key..-"
 
