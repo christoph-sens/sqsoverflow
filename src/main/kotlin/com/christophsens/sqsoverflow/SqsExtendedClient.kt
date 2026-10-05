@@ -89,7 +89,7 @@ class SqsExtendedClient(
         val request =
             input.copy {
                 messageAttributeNames =
-                    input.messageAttributeNames.orEmpty() - RESERVED_ATTRIBUTE_NAME + RESERVED_ATTRIBUTE_NAME
+                    input.messageAttributeNames.orEmpty() - RESERVED_ATTRIBUTE_NAMES.toSet() + RESERVED_ATTRIBUTE_NAMES
             }
         val response = sqsClient.receiveMessage(request)
         val messages = response.messages.orEmpty().mapNotNull { message -> resolvePayload(request.queueUrl, message) }
@@ -150,7 +150,7 @@ class SqsExtendedClient(
     }
 
     private suspend fun resolvePayload(queueUrl: String?, message: Message): Message? {
-        if (RESERVED_ATTRIBUTE_NAME !in message.messageAttributes.orEmpty()) return message
+        if (RESERVED_ATTRIBUTE_NAMES.none { it in message.messageAttributes.orEmpty() }) return message
         val pointerJson = message.body ?: return message
         val receiptHandle = requireNotNull(message.receiptHandle) { "receiptHandle cannot be null." }
 
@@ -168,7 +168,7 @@ class SqsExtendedClient(
 
         return message.copy {
             this.body = originalBody
-            messageAttributes = message.messageAttributes.orEmpty() - RESERVED_ATTRIBUTE_NAME
+            messageAttributes = message.messageAttributes.orEmpty() - RESERVED_ATTRIBUTE_NAMES.toSet()
             this.receiptHandle = embedPointerInReceiptHandle(receiptHandle, PayloadS3Pointer.fromJson(pointerJson))
         }
     }
@@ -206,8 +206,8 @@ class SqsExtendedClient(
             "Number of message attributes [${attrs.size}] exceeds the maximum allowed for large-payload " +
                 "messages [$MAX_ALLOWED_ATTRIBUTES]."
         }
-        require(RESERVED_ATTRIBUTE_NAME !in attrs) {
-            "Message attribute name $RESERVED_ATTRIBUTE_NAME is reserved for use by SqsExtendedClient."
+        RESERVED_ATTRIBUTE_NAMES.forEach { name ->
+            require(name !in attrs) { "Message attribute name $name is reserved for use by SqsExtendedClient." }
         }
     }
 

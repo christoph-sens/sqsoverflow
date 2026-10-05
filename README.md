@@ -40,7 +40,7 @@ boilerplate to the wrapped SQS client, plus a configuration class inherited from
 
 **Note:** dropped compared to the Java library: client-side `ObjectCannedACL`/`ServerSideEncryptionStrategy`
 configuration (bucket-level SSE-S3/SSE-KMS instead), the legacy `SQSLargePayloadSize` attribute name
-toggle (always uses `ExtendedPayloadSize`), and the deprecated pre-`PayloadStorageConfiguration` aliases.
+toggle (always writes `ExtendedPayloadSize`, but recognizes both names on receive), and the deprecated pre-`PayloadStorageConfiguration` aliases.
 Core behavior — threshold-based offloading, `alwaysThroughS3`, `cleanupS3Payload`, `s3KeyPrefix`,
 `ignorePayloadNotFound` — is preserved. The receipt-handle and pointer JSON formats are not
 byte-identical to the Java library's (see [s3overflow](https://github.com/christoph-sens/s3overflow)'s note
@@ -82,7 +82,7 @@ SNS-to-SQS fan-out works between [snsoverflow](https://github.com/christoph-sens
 |---|---|
 | Client-side encryption (`ServerSideEncryptionStrategy`) | Configure SSE-S3 or SSE-KMS on the bucket |
 | `ObjectCannedACL` | Use bucket policies |
-| Legacy `SQSLargePayloadSize` attribute name | Always `ExtendedPayloadSize` |
+| Legacy `SQSLargePayloadSize` attribute name (the Java default) | Recognized on receive; always writes `ExtendedPayloadSize`, which the Java library also reads |
 
 ## Build
 

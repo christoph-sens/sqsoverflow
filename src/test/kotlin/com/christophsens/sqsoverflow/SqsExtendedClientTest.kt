@@ -126,6 +126,19 @@ class SqsExtendedClientTest {
     }
 
     @Test
+    fun `rejects a message that uses the legacy reserved attribute name`() {
+        val request =
+            SendMessageRequest {
+                queueUrl = QUEUE_URL
+                messageBody = "small"
+                messageAttributes = mapOf(LEGACY_RESERVED_ATTRIBUTE_NAME to MessageAttributeValue { dataType = "Number"; stringValue = "1" })
+            }
+
+        assertThatThrownBy { runTest { client.sendMessage(request) } }
+            .isInstanceOf(IllegalArgumentException::class.java)
+    }
+
+    @Test
     fun `rejects a message with too many attributes`() {
         val attributes =
             (1..MAX_ALLOWED_ATTRIBUTES + 1).associate { i ->
@@ -196,7 +209,59 @@ class SqsExtendedClientTest {
             coVerify {
                 sqsClient.receiveMessage(
                     withArg<ReceiveMessageRequest> {
-                        assertThat(it.messageAttributeNames.orEmpty()).contains(RESERVED_ATTRIBUTE_NAME)
+                        assertThat(it.messageAttributeNames.orEmpty())
+                            .containsExactlyInAnyOrder(RESERVED_ATTRIBUTE_NAME, LEGACY_RESERVED_ATTRIBUTE_NAME)
+                    },
+                )
+            }
+        }
+
+    @Test
+    fun `resolves a payload flagged with the legacy attribute name of the Java library`() =
+        runTest {
+            val pointer = PayloadS3Pointer("my-bucket", "my-key")
+            coEvery { payloadStore.getOriginalPayload(pointer.toJson()) } returns "original payload"
+            coEvery { sqsClient.receiveMessage(any<ReceiveMessageRequest>()) } returns
+                ReceiveMessageResponse {
+                    messages =
+                        listOf(
+                            Message {
+                                body = pointer.toJson()
+                                receiptHandle = "original-handle"
+                                messageAttributes =
+                                    mapOf(
+                                        LEGACY_RESERVED_ATTRIBUTE_NAME to MessageAttributeValue { dataType = "Number"; stringValue = "17" },
+                                        "custom" to MessageAttributeValue { dataType = "String"; stringValue = "kept" },
+                                    )
+                            },
+                        )
+                }
+
+            val response = client.receiveMessage(ReceiveMessageRequest { queueUrl = QUEUE_URL })
+
+            val message = response.messages.orEmpty().single()
+            assertThat(message.body).isEqualTo("original payload")
+            assertThat(message.messageAttributes.orEmpty().keys).containsExactly("custom")
+            assertThat(originalReceiptHandle(message.receiptHandle!!)).isEqualTo("original-handle")
+        }
+
+    @Test
+    fun `does not duplicate reserved attribute names the caller already requested`() =
+        runTest {
+            coEvery { sqsClient.receiveMessage(any<ReceiveMessageRequest>()) } returns ReceiveMessageResponse {}
+
+            client.receiveMessage(
+                ReceiveMessageRequest {
+                    queueUrl = QUEUE_URL
+                    messageAttributeNames = listOf("custom", LEGACY_RESERVED_ATTRIBUTE_NAME)
+                },
+            )
+
+            coVerify {
+                sqsClient.receiveMessage(
+                    withArg<ReceiveMessageRequest> {
+                        assertThat(it.messageAttributeNames.orEmpty())
+                            .containsExactlyInAnyOrder("custom", RESERVED_ATTRIBUTE_NAME, LEGACY_RESERVED_ATTRIBUTE_NAME)
                     },
                 )
             }
