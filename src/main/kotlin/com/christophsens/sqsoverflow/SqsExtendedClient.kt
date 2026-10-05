@@ -44,10 +44,15 @@ import aws.sdk.kotlin.services.sqs.model.SendMessageBatchResponse
 import aws.sdk.kotlin.services.sqs.model.SendMessageRequest
 import aws.sdk.kotlin.services.sqs.model.SendMessageResponse
 import com.christophsens.s3overflow.PayloadS3Pointer
+import com.christophsens.s3overflow.SQS_MAX_MESSAGE_SIZE_BYTES
 import com.christophsens.s3overflow.payloadSizeInBytes
 import com.christophsens.s3overflow.storeOriginalPayload
 import io.github.oshai.kotlinlogging.KotlinLogging
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import java.util.UUID
+import kotlin.coroutines.cancellation.CancellationException
 
 private val logger = KotlinLogging.logger {}
 
@@ -56,6 +61,10 @@ private val logger = KotlinLogging.logger {}
  * [SqsExtendedClientConfig.payloadSizeThreshold] to the configured payload store, sending only a
  * pointer through SQS. On receive, the pointer is resolved back to the original payload and the
  * pointer is embedded in the receipt handle so a later delete can clean up the stored payload too.
+ *
+ * Payloads of a batch are stored, resolved and deleted concurrently. A received message whose payload
+ * can't be resolved is left in the queue instead of failing the whole receive: it becomes visible again
+ * after the visibility timeout and ends up in the dead-letter queue if one is configured.
  */
 class SqsExtendedClient(
     private val sqsClient: SqsClient,
@@ -65,10 +74,11 @@ class SqsExtendedClient(
         val body = requireNotNull(input.messageBody?.takeIf { it.isNotEmpty() }) {
             "messageBody cannot be null or empty."
         }
-        checkMessageAttributes(input.messageAttributes)
+        checkReservedAttributes(input.messageAttributes)
 
         val request =
             if (clientConfig.alwaysThroughS3 || isLarge(body, input.messageAttributes)) {
+                checkOffloadableAttributes(input.messageAttributes)
                 val pointer = storeOriginalPayload(body)
                 input.copy {
                     messageAttributes = withSizeAttribute(input.messageAttributes, payloadSizeInBytes(body))
@@ -81,8 +91,15 @@ class SqsExtendedClient(
     }
 
     override suspend fun sendMessageBatch(input: SendMessageBatchRequest): SendMessageBatchResponse {
-        val entries = input.entries.orEmpty().map { entry -> offloadIfNeeded(entry) }
-        return sqsClient.sendMessageBatch(input.copy { this.entries = entries })
+        val entries = input.entries.orEmpty()
+        entries.forEach { entry -> checkReservedAttributes(entry.messageAttributes) }
+
+        val toOffload = entriesToOffload(entries)
+        val prepared =
+            coroutineScope {
+                entries.mapIndexed { index, entry -> async { if (index in toOffload) offload(entry) else entry } }.awaitAll()
+            }
+        return sqsClient.sendMessageBatch(input.copy { this.entries = prepared })
     }
 
     override suspend fun receiveMessage(input: ReceiveMessageRequest): ReceiveMessageResponse {
@@ -92,42 +109,58 @@ class SqsExtendedClient(
                     input.messageAttributeNames.orEmpty() - RESERVED_ATTRIBUTE_NAMES.toSet() + RESERVED_ATTRIBUTE_NAMES
             }
         val response = sqsClient.receiveMessage(request)
-        val messages = response.messages.orEmpty().mapNotNull { message -> resolvePayload(request.queueUrl, message) }
+        val results =
+            coroutineScope {
+                response.messages.orEmpty().map { message -> async { resolveOrFailure(request.queueUrl, message) } }.awaitAll()
+            }
+
+        val failures = results.filterIsInstance<Resolution.Failed>()
+        val messages = results.filterIsInstance<Resolution.Resolved>().mapNotNull { it.message }
+        if (failures.isNotEmpty() && messages.isEmpty()) {
+            throw failures.first().cause.apply { failures.drop(1).forEach { addSuppressed(it.cause) } }
+        }
+        failures.forEach { failure ->
+            logger.error(failure.cause) {
+                "Payload of message ${failure.messageId} could not be resolved; it stays in the queue and is redelivered " +
+                    "after the visibility timeout."
+            }
+        }
         return response.copy { this.messages = messages }
     }
 
     override suspend fun deleteMessage(input: DeleteMessageRequest): DeleteMessageResponse {
         val handle = requireNotNull(input.receiptHandle) { "receiptHandle cannot be null." }
-        return sqsClient.deleteMessage(input.copy { receiptHandle = originalReceiptHandleAndCleanUp(handle) })
+        val response = sqsClient.deleteMessage(input.copy { receiptHandle = originalReceiptHandleOrSelf(handle) })
+        cleanUpPayload(handle)
+        return response
     }
 
     override suspend fun deleteMessageBatch(input: DeleteMessageBatchRequest): DeleteMessageBatchResponse {
-        val entries = input.entries.orEmpty().map { entry -> restoreReceiptHandle(entry) }
-        return sqsClient.deleteMessageBatch(input.copy { this.entries = entries })
+        val entries = input.entries.orEmpty()
+        val response =
+            sqsClient.deleteMessageBatch(
+                input.copy {
+                    this.entries = entries.map { entry -> entry.copy { receiptHandle = originalReceiptHandleOrSelf(entry.receiptHandle) } }
+                },
+            )
+
+        val deletedIds = response.successful.map { it.id }.toSet()
+        coroutineScope {
+            entries.filter { it.id in deletedIds }.map { entry -> async { cleanUpPayload(entry.receiptHandle) } }.awaitAll()
+        }
+        return response
     }
 
     override suspend fun changeMessageVisibility(input: ChangeMessageVisibilityRequest): ChangeMessageVisibilityResponse {
         val handle = input.receiptHandle
-        val request =
-            if (handle != null && isS3ReceiptHandle(handle)) {
-                input.copy { receiptHandle = originalReceiptHandle(handle) }
-            } else {
-                input
-            }
+        val request = if (handle != null) input.copy { receiptHandle = originalReceiptHandleOrSelf(handle) } else input
         return sqsClient.changeMessageVisibility(request)
     }
 
     override suspend fun changeMessageVisibilityBatch(
         input: ChangeMessageVisibilityBatchRequest,
     ): ChangeMessageVisibilityBatchResponse {
-        val entries =
-            input.entries.orEmpty().map { entry ->
-                if (isS3ReceiptHandle(entry.receiptHandle)) {
-                    entry.copy { receiptHandle = originalReceiptHandle(entry.receiptHandle) }
-                } else {
-                    entry
-                }
-            }
+        val entries = input.entries.orEmpty().map { entry -> entry.copy { receiptHandle = originalReceiptHandleOrSelf(entry.receiptHandle) } }
         return sqsClient.changeMessageVisibilityBatch(input.copy { this.entries = entries })
     }
 
@@ -136,18 +169,50 @@ class SqsExtendedClient(
         return sqsClient.purgeQueue(input)
     }
 
-    private suspend fun offloadIfNeeded(entry: SendMessageBatchRequestEntry): SendMessageBatchRequestEntry {
-        checkMessageAttributes(entry.messageAttributes)
+    /**
+     * Indices of the batch entries to offload: every entry above the threshold, plus the largest remaining
+     * entries while the batch as a whole would exceed the SQS limit for the sum of all messages.
+     */
+    private fun entriesToOffload(entries: List<SendMessageBatchRequestEntry>): Set<Int> {
+        val sizes = entries.map { messageSizeInBytes(it.messageBody, it.messageAttributes) }
+        val offloadedSizes = entries.map { attributesSizeInBytes(it.messageAttributes.orEmpty()) + OFFLOADED_BODY_ALLOWANCE_BYTES }
+        val toOffload = entries.indices.filterTo(mutableSetOf()) { clientConfig.alwaysThroughS3 || sizes[it] > clientConfig.payloadSizeThreshold }
 
+        var total = entries.indices.sumOf { if (it in toOffload) offloadedSizes[it] else sizes[it] }
+        val candidates = (entries.indices - toOffload).sortedByDescending { sizes[it] }.iterator()
+        while (total > SQS_MAX_MESSAGE_SIZE_BYTES && candidates.hasNext()) {
+            val index = candidates.next()
+            toOffload += index
+            total += offloadedSizes[index] - sizes[index]
+        }
+        toOffload.forEach { checkOffloadableAttributes(entries[it].messageAttributes) }
+        return toOffload
+    }
+
+    private suspend fun offload(entry: SendMessageBatchRequestEntry): SendMessageBatchRequestEntry {
         val body = entry.messageBody
-        if (!clientConfig.alwaysThroughS3 && !isLarge(body, entry.messageAttributes)) return entry
-
         val pointer = storeOriginalPayload(body)
         return entry.copy {
             messageAttributes = withSizeAttribute(entry.messageAttributes, payloadSizeInBytes(body))
             messageBody = pointer
         }
     }
+
+    private sealed interface Resolution {
+        /** [message] is null when the message was deleted because its payload was missing. */
+        class Resolved(val message: Message?) : Resolution
+
+        class Failed(val messageId: String?, val cause: Throwable) : Resolution
+    }
+
+    private suspend fun resolveOrFailure(queueUrl: String?, message: Message): Resolution =
+        try {
+            Resolution.Resolved(resolvePayload(queueUrl, message))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Resolution.Failed(message.messageId, e)
+        }
 
     private suspend fun resolvePayload(queueUrl: String?, message: Message): Message? {
         if (RESERVED_ATTRIBUTE_NAMES.none { it in message.messageAttributes.orEmpty() }) return message
@@ -173,16 +238,13 @@ class SqsExtendedClient(
         }
     }
 
-    private suspend fun originalReceiptHandleAndCleanUp(receiptHandle: String): String {
-        if (!isS3ReceiptHandle(receiptHandle)) return receiptHandle
-        if (clientConfig.cleanupS3Payload) {
-            clientConfig.payloadStore.deleteOriginalPayload(pointerFromReceiptHandle(receiptHandle).toJson())
-        }
-        return originalReceiptHandle(receiptHandle)
-    }
+    private fun originalReceiptHandleOrSelf(receiptHandle: String): String =
+        if (isS3ReceiptHandle(receiptHandle)) originalReceiptHandle(receiptHandle) else receiptHandle
 
-    private suspend fun restoreReceiptHandle(entry: DeleteMessageBatchRequestEntry): DeleteMessageBatchRequestEntry {
-        return entry.copy { receiptHandle = originalReceiptHandleAndCleanUp(entry.receiptHandle) }
+    /** Deletes the payload behind [receiptHandle] once its message is gone; a failure only leaves an orphaned object. */
+    private suspend fun cleanUpPayload(receiptHandle: String) {
+        if (!clientConfig.cleanupS3Payload || !isS3ReceiptHandle(receiptHandle)) return
+        clientConfig.payloadStore.deleteOriginalPayload(pointerFromReceiptHandle(receiptHandle).toJson())
     }
 
     private suspend fun storeOriginalPayload(body: String): String {
@@ -194,7 +256,14 @@ class SqsExtendedClient(
         }
     }
 
-    private fun checkMessageAttributes(attributes: Map<String, MessageAttributeValue>?) {
+    private fun checkReservedAttributes(attributes: Map<String, MessageAttributeValue>?) {
+        val attrs = attributes.orEmpty()
+        RESERVED_ATTRIBUTE_NAMES.forEach { name ->
+            require(name !in attrs) { "Message attribute name $name is reserved for use by SqsExtendedClient." }
+        }
+    }
+
+    private fun checkOffloadableAttributes(attributes: Map<String, MessageAttributeValue>?) {
         val attrs = attributes.orEmpty()
         val size = attributesSizeInBytes(attrs)
         require(size <= clientConfig.payloadSizeThreshold) {
@@ -206,13 +275,13 @@ class SqsExtendedClient(
             "Number of message attributes [${attrs.size}] exceeds the maximum allowed for large-payload " +
                 "messages [$MAX_ALLOWED_ATTRIBUTES]."
         }
-        RESERVED_ATTRIBUTE_NAMES.forEach { name ->
-            require(name !in attrs) { "Message attribute name $name is reserved for use by SqsExtendedClient." }
-        }
     }
 
     private fun isLarge(body: String, attributes: Map<String, MessageAttributeValue>?): Boolean =
-        attributesSizeInBytes(attributes.orEmpty()) + payloadSizeInBytes(body) > clientConfig.payloadSizeThreshold
+        messageSizeInBytes(body, attributes) > clientConfig.payloadSizeThreshold
+
+    private fun messageSizeInBytes(body: String, attributes: Map<String, MessageAttributeValue>?): Long =
+        attributesSizeInBytes(attributes.orEmpty()) + payloadSizeInBytes(body)
 
     private fun attributesSizeInBytes(attributes: Map<String, MessageAttributeValue>): Long =
         attributes.entries.sumOf { (key, value) ->
