@@ -17,7 +17,7 @@ concurrency:
 jobs:
   # Shared CI, see https://github.com/christoph-sens/ci-workflows
   ci:
-    uses: christoph-sens/ci-workflows/.github/workflows/gradle-ci.yml@dd2a323913c440d0f56c975a644ff0c408d141fb # v1.2.1
+    uses: christoph-sens/ci-workflows/.github/workflows/gradle-ci.yml@063cdb37f96b957adbf89dd1c77cced48d55683f # v1.3.3
     permissions:
       contents: write        # dependency submission on push to main
       security-events: write # CodeQL and Trivy results
