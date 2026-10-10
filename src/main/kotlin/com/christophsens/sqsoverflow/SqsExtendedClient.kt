@@ -57,7 +57,7 @@ import kotlin.coroutines.cancellation.CancellationException
 private val logger = KotlinLogging.logger {}
 
 /**
- * Wraps an aws-sdk-kotlin [SqsClient] and transparently offloads message bodies that exceed
+ * Returns an [SqsClient] that wraps [sqsClient] and transparently offloads message bodies that exceed
  * [SqsExtendedClientConfig.payloadSizeThreshold] to the configured payload store, sending only a
  * pointer through SQS. On receive, the pointer is resolved back to the original payload and the
  * pointer is embedded in the receipt handle so a later delete can clean up the stored payload too.
@@ -65,8 +65,35 @@ private val logger = KotlinLogging.logger {}
  * Payloads of a batch are stored, resolved and deleted concurrently. A received message whose payload
  * can't be resolved is left in the queue instead of failing the whole receive: it becomes visible again
  * after the visibility timeout and ends up in the dead-letter queue if one is configured.
+ *
+ * The returned client is a dynamic proxy for the [SqsClient] interface of the aws-sdk-kotlin version on
+ * the runtime classpath: the operations that handle payloads go through the offloading logic, every other
+ * operation goes straight to [sqsClient]. Operations added by a newer aws-sdk-kotlin therefore work
+ * without a new sqsoverflow release.
  */
-class SqsExtendedClient(
+fun SqsExtendedClient(
+    sqsClient: SqsClient,
+    clientConfig: SqsExtendedClientConfig,
+): SqsClient = offloadingProxy(OffloadingSqsClient(sqsClient, clientConfig), sqsClient, OFFLOADED_OPERATIONS)
+
+/** Operations that [OffloadingSqsClient] overrides; all others are forwarded to the wrapped client by the proxy. */
+internal val OFFLOADED_OPERATIONS =
+    setOf(
+        "sendMessage",
+        "sendMessageBatch",
+        "receiveMessage",
+        "deleteMessage",
+        "deleteMessageBatch",
+        "changeMessageVisibility",
+        "changeMessageVisibilityBatch",
+        "purgeQueue",
+    )
+
+/**
+ * The offloading logic behind [SqsExtendedClient]. Only reached through the proxy, and only for
+ * [OFFLOADED_OPERATIONS]: its delegated members are compiled against one aws-sdk-kotlin version.
+ */
+internal class OffloadingSqsClient(
     private val sqsClient: SqsClient,
     private val clientConfig: SqsExtendedClientConfig,
 ) : SqsClient by sqsClient {

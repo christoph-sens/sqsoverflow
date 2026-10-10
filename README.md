@@ -4,7 +4,7 @@
 [![CI](https://github.com/christoph-sens/sqsoverflow/actions/workflows/ci.yml/badge.svg)](https://github.com/christoph-sens/sqsoverflow/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-**An SQS extended client for Kotlin.** `SqsExtendedClient` is an [aws-sdk-kotlin](https://github.com/awslabs/aws-sdk-kotlin)
+**An SQS extended client for Kotlin.** `SqsExtendedClient(...)` returns an [aws-sdk-kotlin](https://github.com/awslabs/aws-sdk-kotlin)
 `SqsClient` that transparently offloads message bodies above a configurable size threshold to S3 and
 resolves them again on receive: the claim-check pattern, with coroutines and without the Java SDK.
 
@@ -34,7 +34,7 @@ boilerplate to the wrapped SQS client, plus a configuration class inherited from
 
 | Java library | sqsoverflow |
 |---|---|
-| Separate `AmazonSQSExtendedClient`/`AmazonSQSExtendedAsyncClient`, ~1150-line `AmazonSQSExtendedClientBase` of pure pass-through methods | `aws-sdk-kotlin`'s `SqsClient` is already `suspend`-based, so one `SqsExtendedClient` covers both; Kotlin interface delegation (`SqsClient by sqsClient`) replaces the entire pass-through base class — only the handful of methods with real offload logic are overridden |
+| Separate `AmazonSQSExtendedClient`/`AmazonSQSExtendedAsyncClient`, ~1150-line `AmazonSQSExtendedClientBase` of pure pass-through methods | `aws-sdk-kotlin`'s `SqsClient` is already `suspend`-based, so one `SqsExtendedClient` covers both; a dynamic proxy forwards every other operation to the wrapped client, so only the eight methods with real offload logic are implemented — and operations added by newer aws-sdk-kotlin versions keep working without a new release |
 | `payloadoffloading-common`'s `PayloadStore`/`S3BackedPayloadStore`/`S3Dao`/`Util`/`PayloadS3Pointer` | [s3overflow](https://github.com/christoph-sens/s3overflow) |
 | `ExtendedClientConfiguration` extends `PayloadStorageConfiguration` (S3 client, `ObjectCannedACL`, `ServerSideEncryptionStrategy`, legacy `SQSLargePayloadSize` attribute toggle, deprecated `withLargePayloadSupport*` aliases) | `SqsExtendedClientConfig` takes a `PayloadStore` directly; ACL/CSE-style config is dropped — encryption is configured on the S3 bucket itself, same simplification s3overflow already made |
 | 8 main classes, ~3700 lines | 3 files, ~250 lines |
@@ -65,8 +65,11 @@ val messages = extendedClient.receiveMessage(ReceiveMessageRequest { queueUrl = 
 messages?.forEach { message -> extendedClient.deleteMessage(DeleteMessageRequest { queueUrl = myQueueUrl; receiptHandle = message.receiptHandle }) }
 ```
 
-`SqsExtendedClient` implements `SqsClient`, so it's a drop-in replacement wherever a plain
-`aws-sdk-kotlin` `SqsClient` is expected.
+`SqsExtendedClient(...)` returns an `SqsClient`, so it's a drop-in replacement wherever a plain
+`aws-sdk-kotlin` `SqsClient` is expected. The returned client is a dynamic proxy for the `SqsClient`
+interface on your classpath: payload operations go through the offloading logic, every other
+operation goes straight to the wrapped client. Upgrading aws-sdk-kotlin independently of sqsoverflow
+is safe, including versions that add new SQS operations.
 
 ## Behavior worth knowing
 

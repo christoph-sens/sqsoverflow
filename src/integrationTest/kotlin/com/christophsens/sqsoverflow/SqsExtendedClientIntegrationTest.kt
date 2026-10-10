@@ -60,7 +60,7 @@ class SqsExtendedClientIntegrationTest {
 
     private lateinit var testQueueUrl: String
     private lateinit var testBucketName: String
-    private lateinit var extendedClient: SqsExtendedClient
+    private lateinit var extendedClient: SqsClient
 
     @BeforeEach
     fun setUp() =
