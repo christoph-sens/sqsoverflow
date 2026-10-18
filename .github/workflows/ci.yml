@@ -6,6 +6,8 @@ on:
   pull_request:
   schedule:
     - cron: "0 5 * * 1"
+  # By hand, e.g. when main has no dependency graph snapshot after a merge that started no CI run.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -17,7 +19,7 @@ concurrency:
 jobs:
   # Shared CI, see https://github.com/christoph-sens/ci-workflows
   ci:
-    uses: christoph-sens/ci-workflows/.github/workflows/gradle-ci.yml@b0abb203fa122cb16f79dce863cf50c1e10dee01 # v1.3.6
+    uses: christoph-sens/ci-workflows/.github/workflows/gradle-ci.yml@d5fd261715166b1b116e2530341dd8c70895e383 # v1.4.0
     permissions:
       contents: write        # dependency submission on push to main
       security-events: write # CodeQL and Trivy results
