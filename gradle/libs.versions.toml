@@ -1,6 +1,6 @@
 [versions]
 kotlin = "2.4.21"
-aws-sdk-kotlin = "1.9.20"
+aws-sdk-kotlin = "1.9.24"
 kotlinx-coroutines = "1.11.0"
 s3overflow = "1.2.0"
 kotlin-logging = "8.0.4"
@@ -9,7 +9,7 @@ mockk = "1.14.11"
 assertj = "3.27.7"
 maven-publish = "0.37.0"
 testcontainers = "1.21.4"
-testcontainers-floci = "2.16.1"
+testcontainers-floci = "2.17.0"
 
 [libraries]
 aws-sdk-kotlin-sqs = { module = "aws.sdk.kotlin:sqs", version.ref = "aws-sdk-kotlin" }
