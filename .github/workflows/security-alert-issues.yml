@@ -15,7 +15,7 @@ concurrency:
 jobs:
   # Shared job, see https://github.com/christoph-sens/ci-workflows
   sync:
-    uses: christoph-sens/ci-workflows/.github/workflows/security-alert-issues.yml@7a75d04b0c4cab6c0ab7e52960d3ed532df81535 # v1.5.2
+    uses: christoph-sens/ci-workflows/.github/workflows/security-alert-issues.yml@d47df1059257d0d8125b8c82a9ec8cca8c7df8ab # v1.5.4
     permissions:
       issues: write
     secrets:
