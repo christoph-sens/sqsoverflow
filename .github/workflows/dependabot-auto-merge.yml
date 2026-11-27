@@ -9,7 +9,7 @@ permissions:
 jobs:
   # Shared job, see https://github.com/christoph-sens/ci-workflows
   auto-merge:
-    uses: christoph-sens/ci-workflows/.github/workflows/dependabot-auto-merge.yml@d47df1059257d0d8125b8c82a9ec8cca8c7df8ab # v1.5.4
+    uses: christoph-sens/ci-workflows/.github/workflows/dependabot-auto-merge.yml@74ae2a5c395bb847aef5c859c1e8307cde132293 # v1.5.5
     secrets:
       # Dependabot secret: a merge with GITHUB_TOKEN would start no CI run on main.
       merge-token: ${{ secrets.AUTO_MERGE_TOKEN }}
